@@ -1,0 +1,322 @@
+install.packages('ggplot2')
+install.packages('shiny')
+install.packages("bslib")
+install.packages('shinydashboard')
+install.packages('DT')
+library(shiny)
+library(shinydashboard)
+library(ggplot2)
+
+# Assuming df is your dataframe
+# Add a Day column if not already present
+df$Day <- 1:nrow(df)
+
+# Constants for the awareness calculation
+coeffs_a <- coef(response_aware)
+gamma_a <- coeffs_a[2]
+beta_1_a <- coeffs_a[3]
+beta_2_a <- coeffs_a[4]
+beta_3_a <- coeffs_a[5]
+beta_4_a <- coeffs_a[6]
+beta_5_a <- coeffs_a[7]
+Intercept_a <- coeffs_a[1]
+
+coeffs_c <- coef(response_consideration)
+gamma_c <- coeffs_c[2]
+beta_1_c <- coeffs_c[3]
+beta_2_c <- coeffs_c[4]
+beta_3_c <- coeffs_c[5]
+beta_4_c <- coeffs_c[6]
+beta_5_c <- coeffs_c[7]
+Intercept_c <- coeffs_c[1]
+
+coeffs_l <- coef(response_liking)
+gamma_l <- coeffs_l[2]
+beta_1_l <- coeffs_l[3]
+beta_2_l <- coeffs_l[4]
+beta_3_l <- coeffs_l[5]
+beta_4_l <- coeffs_l[6]
+beta_5_l <- coeffs_l[7]
+Intercept_l <- coeffs_l[1]
+
+coeffs_s <- coef(conversion)
+gamma_s <- coeffs_s[2]
+beta_1_s <- coeffs_s[3]
+beta_2_s <- coeffs_s[4]
+beta_3_s <- coeffs_s[5]
+Intercept_s <- coeffs_s[1]
+
+# Define UI
+ui <- dashboardPage(
+  dashboardHeader(title = "Dirtea"),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Line Plot", tabName = "line_plot", icon = icon("line-chart")),
+      menuItem("Mindset Metrics", tabName = "awareness_calc", icon = icon("calculator")),
+      menuItem("Sales Trend", tabName = "sales_trend", icon = icon("chart-line"))
+    )
+  ),
+  
+  dashboardBody(
+    tabItems(
+      tabItem(tabName = "line_plot",
+              h3("Line Plot Visualization"),
+              fluidRow(
+                column(6,
+                       sliderInput(
+                         inputId = "day_range",
+                         label = "Select Day Range:",
+                         min = min(df$Day),
+                         max = max(df$Day),
+                         value = c(min(df$Day), max(df$Day)),
+                         step = 1
+                       )
+                ),
+                column(6,
+                       selectInput(
+                         inputId = "feature",
+                         label = "Select a Feature to Plot:",
+                         choices = c("Awareness", "Consideration", "Liking", "Sales"),
+                         selected = "Sales"
+                       )
+                )
+              ),
+              box(
+                title = "Line Plot",
+                status = "primary",
+                solidHeader = TRUE,
+                width = 12,
+                plotOutput("linePlot")
+              )
+      ),
+      
+      tabItem(tabName = "awareness_calc",
+              h3("Mindset Metric Calculator"),
+              fluidRow(
+                column(6,
+                       numericInput(
+                         inputId = "day_number",
+                         label = "Enter Day Number:",
+                         value = 1,
+                         min = 1
+                       ),
+                       numericInput(
+                         inputId = "InstagramAds",
+                         label = "Instagram Ads Budget:",
+                         value = tail(df$InstagramAds, 1),
+                         min = 0
+                       ),
+                       numericInput(
+                         inputId = "TikTokAds",
+                         label = "TikTok Ads Budget:",
+                         value = tail(df$TikTokAds, 1),
+                         min = 0
+                       ),
+                       numericInput(
+                         inputId = "SEA",
+                         label = "SEA Budget:",
+                         value = tail(df$SEA, 1),
+                         min = 0
+                       ),
+                       numericInput(
+                         inputId = "PoSPromotions",
+                         label = "Point of Sale Promotions:",
+                         value = tail(df$PoSPromotions, 1),
+                         min = 0
+                       ),
+                       numericInput(
+                         inputId = "InfluencerColab",
+                         label = "Influencer Collaborations:",
+                         value = tail(df$InfluencerColabs, 1),
+                         min = 0
+                       )
+                ),
+                column(6,
+                       numericInput(
+                         inputId = "PrevSales",
+                         label = "Previous Sales:",
+                         value = round(tail(df$Sales, 1), 1),
+                         min = 0
+                       ),
+                       numericInput(
+                         inputId = "PrevAware",
+                         label = "Previous Awareness Value:",
+                         value = round(tail(df$Awareness, 1), 1),
+                         min = 0
+                       ),
+                       numericInput(
+                         inputId = "PrevConsider",
+                         label = "Previous Consideration Value:",
+                         value = round(tail(df$consideration_transformed, 1), 1),
+                         min = 0
+                       ),
+                       numericInput(
+                         inputId = "PrevLike",
+                         label = "Previous Liking Value:",
+                         value = round(tail(df$liking_transformed, 1), 1),
+                         min = 0
+                       ),
+                       actionButton("submit_day", "Submit Day")
+                )
+              ),
+              box(
+                title = "Calculated Awareness",
+                status = "primary",
+                solidHeader = TRUE,
+                width = 6,
+                style = "font-size: 24px; text-align: center;",
+                textOutput("awareness_value")
+              ),
+              box(
+                title = "Calculated Consideration",
+                status = "primary",
+                solidHeader = TRUE,
+                width = 6,
+                style = "font-size: 24px; text-align: center;",
+                textOutput("consideration_value")
+              ),
+              box(
+                title = "Calculated Liking",
+                status = "primary",
+                solidHeader = TRUE,
+                width = 6,
+                style = "font-size: 24px; text-align: center;",
+                textOutput("liking_value")
+              ),
+              box(
+                title = "Sales",
+                status = "primary",
+                solidHeader = TRUE,
+                width = 6,
+                style = "font-size: 24px; text-align: center;",
+                textOutput("sales_value")
+              )
+      ),
+      
+      tabItem(tabName = "sales_trend",
+              h3("Sales Trend Over Days"),
+              box(
+                title = "Sales Trend",
+                status = "primary",
+                solidHeader = TRUE,
+                width = 12,
+                plotOutput("sales_trend_plot")
+              )
+      )
+    )
+  )
+)
+
+# Define Server
+server <- function(input, output, session) {
+  
+  # Line Plot: Reactive filtering of data
+  output$linePlot <- renderPlot({
+    filtered_data <- df[df$Day >= input$day_range[1] & df$Day <= input$day_range[2], ]
+    feature_data <- filtered_data[, c("Day", input$feature)]
+    colnames(feature_data) <- c("Day", "Value")
+    
+    ggplot(feature_data, aes(x = Day, y = Value)) +
+      geom_line(color = "blue", size = 1) +
+      geom_point(color = "red") +
+      labs(
+        title = paste("Line Plot for", input$feature),
+        x = "Day",
+        y = input$feature
+      ) +
+      theme_minimal()
+  })
+  
+  # Reactive value to store sales trend
+  sales_trend <- reactiveVal(data.frame(Day = numeric(0), Sales = numeric(0)))
+  
+  # Awareness Calculation: Reactive calculation
+  awareness_calculation <- reactive({
+    response_aware <- input$PrevAware^gamma_a *
+      input$InstagramAds^beta_1_a *
+      input$TikTokAds^beta_2_a *
+      input$SEA^beta_3_a *
+      input$PoSPromotions^beta_4_a *
+      input$InfluencerColab^beta_5_a *
+      exp(Intercept_a)
+    return(response_aware)
+  })
+  
+  consideration_calculation <- reactive({
+    response_consideration <- input$PrevConsider^gamma_c *
+      input$InstagramAds^beta_1_c *
+      input$TikTokAds^beta_2_c *
+      input$SEA^beta_3_c *
+      input$PoSPromotions^beta_4_c *
+      input$InfluencerColab^beta_5_c *
+      exp(Intercept_c)
+    return(response_consideration)
+  })
+  
+  liking_calculation <- reactive({
+    response_liking <- input$PrevLike^gamma_l *
+      input$InstagramAds^beta_1_l *
+      input$TikTokAds^beta_2_l *
+      input$SEA^beta_3_l *
+      input$PoSPromotions^beta_4_l *
+      input$InfluencerColab^beta_5_l *
+      exp(Intercept_l)
+    return(response_liking)
+  })
+  
+  sales_calculation <- reactive({
+    aware <- awareness_calculation()
+    consider <- consideration_calculation()
+    like <- liking_calculation()
+    
+    response_sales <- input$PrevSales^gamma_s *
+      aware^beta_1_s *
+      consider^beta_2_s *
+      like^beta_3_s *
+      exp(Intercept_s)
+    return(response_sales)
+  })
+  
+  # Update Calculated Outputs
+  output$awareness_value <- renderText({
+    format(round(awareness_calculation(), 2), big.mark = ",")
+  })
+  
+  output$consideration_value <- renderText({
+    format(round(consideration_calculation(), 2), big.mark = ",")
+  })
+  
+  output$liking_value <- renderText({
+    format(round(liking_calculation(), 2), big.mark = ",")
+  })
+  
+  output$sales_value <- renderText({
+    format(round(sales_calculation(), 2), big.mark = ",")
+  })
+  
+  # Update Sales Trend on Submit
+  observeEvent(input$submit_day, {
+    new_sales <- data.frame(Day = input$day_number, Sales = sales_calculation())
+    updated_trend <- rbind(sales_trend(), new_sales)
+    updated_trend <- updated_trend[order(updated_trend$Day), ]  # Ensure the trend is ordered by Day
+    sales_trend(updated_trend)
+  })
+  
+  # Render Sales Trend Plot
+  output$sales_trend_plot <- renderPlot({
+    trend_data <- sales_trend()
+    ggplot(trend_data, aes(x = Day, y = Sales)) +
+      geom_line(color = "blue", size = 1) +
+      geom_point(color = "red", size = 3) +
+      labs(
+        title = "Sales Trend Over Days",
+        x = "Day",
+        y = "Sales"
+      ) +
+      theme_minimal()
+  })
+}
+
+# Run the app
+shinyApp(ui = ui, server = server)

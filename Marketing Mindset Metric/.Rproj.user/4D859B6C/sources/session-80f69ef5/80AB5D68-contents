@@ -1,0 +1,249 @@
+head(MindSetDF)
+df <- MindSetDF
+
+# if I create a useless column, use that
+# df <- df[, -which(names(df) == "test_consideration")]
+
+df$TotalBudget = df$InstagramAds+df$TikTokAds+df$SEA+df$PoSPromotions+df$InfluencerColabs
+# Note (how to add interactions): 
+#   - adding pairwise interaction: (log(factor1) + log(factor2) + etc)^2
+#   - adding full interactions: factor1 * factor2 * etc
+summary(df$TotalBudget)
+# POTENTIAL
+
+# Calculate potential for awareness and consideration
+potential_awareness <- (100- mean(df$Awareness))/100
+potential_awareness
+
+# Calculate potential for liking and consideration
+# We have negative and positive values, so I don't know exactly the meaning.
+
+# data exploration of liking
+max(df$Liking) # 22.8
+min(df$Liking) # -19.7
+mean(df$Liking) # 1.2
+
+# data exploration of consideration
+max(df$Consideration) # 25.6
+min(df$Consideration) # -16.5
+mean(df$Consideration) # 4.1
+
+# What makes most sense is considering that the values represent is a relative % deviation from an reference value.
+# Note: just being an absolute deviation would also work fine. We just need something to work with.
+# Since this means that there is no theoretical maximum, let's just use the maximum from each one
+# Note: I just hope that this is not the case for awareness. Fucking raw data with no explanation...
+
+# OK, actually negative values fuck the log regression, so let's go with data centered around 100 
+# (to get 100% as our reference). To avoid rescaling the variance, 
+# we'll consider that the values were already percentage deviations
+
+# Final stance: we consider it as % deviation from daily awareness values: 
+# we get natural min and max + we get interpretability
+
+# creating a new consideration column
+df$consideration_transformed <-  df$Consideration+50
+mean(df$consideration_transformed)
+
+potential_consideration <- (100- mean(df$consideration_transformed))/100
+potential_consideration
+
+# creating a new liking column
+df$liking_transformed <- df$Liking + 50
+mean(df$liking_transformed)
+
+potential_liking <- (100- mean(df$liking_transformed))/100
+potential_liking
+
+# store the values in a dataframe
+table_potential<-data.frame(
+  potential=c("awareness", "consideration","liking"), value = c(potential_awareness, potential_consideration, potential_liking)
+)
+
+table_potential
+
+
+# STICKINESS
+
+#awareness
+ar1 <- ar(df$Awareness, aic = TRUE)
+ar1
+
+#consideration
+ar2 <- ar(df$consideration_transformed, aic = TRUE)
+ar2
+
+#liking
+ar3 <- ar(df$liking_transformed, aic = TRUE)
+ar3
+
+# Observation: very high variance for the error in consideration and liking
+
+stick_awareness <- sum(unlist(ar1$ar))
+stick_consideration <- sum(unlist(ar2$ar))
+stick_liking <- sum(unlist(ar3$ar))
+stick_awareness
+stick_consideration
+stick_liking
+
+# Observation: negative stickiness could mean that it reverts back to 0 over time. There would be no stickiness
+# it seems to come from the high volatility of liking and consideration.
+
+
+# RESPONSIVENESS
+
+
+#We start by generating lagged variables for each mindset metric and sales
+
+df$lag_aware<-lag(df$Awareness)
+df$lag_aware[1]<-0
+df$lag_consideration <-lag(df$consideration_transformed)
+df$lag_consideration[1]<-0
+df$lag_liking <-lag(df$liking_transformed)
+df$lag_liking[1]<-0
+df$lag_sales <-lag(df$Sales)
+df$lag_sales[1]<-0
+
+# The dataframe represents daily data, I think that any marketing variable takes a bit more than 1 day to have an effect
+# we need to add a lag for each one
+
+# well, actually, if the KPI they use for awareness, consideration and liking are tractable right after an add, maybe it 
+# makes sense to not look at the lagged metrics (since it's supposed to be short-term responsiveness)
+
+df$lag_insta <-lag(df$InstagramAds)
+df$lag_insta[1]<-0
+df$lag_tiktok <-lag(df$TikTokAds)
+df$lag_tiktok[1]<-0
+df$lag_sea <-lag(df$SEA)
+df$lag_sea[1]<-0
+df$lag_pospromotion <-lag(df$PoSPromotions)
+df$lag_pospromotion[1]<-0
+df$lag_colabs <-lag(df$InfluencerColabs)
+df$lag_colabs[1]<-0
+
+
+
+#Now estimate the log-linear model
+# @TODO: add interaction => ok but it becomes weird
+# @TODO: 
+
+# this function adds interactions between all the terms but the lag_mindset. It's great but it's also too much (oups)
+my_responsiveness_full <- function(mindset, lag_mindset) {
+  tmp <- lm(log(df[[mindset]]+1)~log(df[[lag_mindset]]+1)+log(df$InstagramAds+1)*log(df$TikTokAds+1)*log(df$SEA+1)*log(df$PoSPromotions+1)*log(df$InfluencerColabs+1), data = df)
+  return(tmp)
+}
+summary(my_responsiveness_full("Awareness", "lag_aware"))
+
+my_responsiveness_no_interact <- function(mindset, lag_mindset) {
+  tmp <- lm(log(df[[mindset]]+1)~log(df[[lag_mindset]]+1)+log(df$InstagramAds+1)+log(df$TikTokAds+1)+log(df$SEA+1)+log(df$PoSPromotions+1)+log(df$InfluencerColabs+1), data = df)
+  return(tmp)
+}
+fit0 <- my_responsiveness_no_interact("Awareness", "lag_aware")
+fit1 <- my_responsiveness_full("Awareness", "lag_aware")
+fit2 <- step(fit1, scope = list(lower = formula(fit0),upper = formula(fit1)))#for testing if the full model with all possible interactions can be reduced efficiently. Answer: No.
+
+# ok this one only does pairwise interactions, it's lighter, I like it
+my_responsiveness_pairwise <- function(mindset, lag_mindset) {
+  tmp <- lm(log(df[[mindset]]+1)~log(df[[lag_mindset]]+1)+(log(df$InstagramAds+1)+log(df$TikTokAds+1)+log(df$SEA+1)+log(df$PoSPromotions+1)+log(df$InfluencerColabs+1))^2, data = df)
+  return(tmp)
+}
+summary(my_responsiveness_pairwise("Awareness", "lag_aware"))
+fit3 <- my_responsiveness_pairwise("Awareness", "lag_aware")
+response_aware <- step(fit3, scope = list(lower = formula(fit0),upper = formula(fit3)))
+
+fullconsideration=my_responsiveness_pairwise("consideration_transformed", "lag_consideration")
+reducedconsideration=my_responsiveness_no_interact("consideration_transformed", "lag_consideration")
+response_consideration <- step(fullconsideration, scope = list(lower = formula(reducedconsideration),upper = formula(fullconsideration)))
+
+fullliking=my_responsiveness_pairwise("liking_transformed", "lag_consideration")
+reducedliking=my_responsiveness_no_interact("liking_transformed", "lag_consideration")
+response_liking <- step(fullconsideration, scope = list(lower = formula(reducedconsideration),upper = formula(fullconsideration)))
+
+fullsales=my_responsiveness_pairwise("Sales", "lag_sales")
+reducedsales=my_responsiveness_no_interact("Sales", "lag_sales")
+response_sales <- step(fullsales, scope = list(lower = formula(reducedsales),upper = formula(fullsales)))
+
+#response_aware <- lm(log(df$Awareness+1)~log(df$lag_aware+1) + log(df$InstagramAds+1) + log(df$TikTokAds+1) + log(df$SEA+1) + log(df$PoSPromotions+1) + log(df$InfluencerColabs+1), data = df)
+
+#response_consideration <- lm(log(df$consideration_transformed+1)~log(df$lag_consideration+1)+log(df$InstagramAds+1)+log(df$TikTokAds+1)+log(df$SEA+1)+log(df$PoSPromotions+1)+log(df$InfluencerColabs+1), data = df)
+
+#response_liking <- lm(log(df$liking_transformed+1)~log(df$lag_liking+1)+log(df$InstagramAds+1)+log(df$TikTokAds+1)+log(df$SEA+1)+log(df$PoSPromotions+1)+log(df$InfluencerColabs+1), data = df)
+
+#response_sales <- lm(log(df$Sales+1)~log(df$lag_sales+1)+log(df$InstagramAds+1)+log(df$TikTokAds+1)+log(df$SEA+1)+log(df$PoSPromotions+1)+log(df$InfluencerColabs+1), data = df)
+
+# Observation: I have missing values when using un-transformed liking and consideration => the log can't be computed
+
+
+#Summarize all the regression results here:
+summary(response_aware)
+summary(response_consideration)
+summary(response_liking)
+summary(response_sales)
+# pretty bad R-squared, but it's normal for that kind of regression. It doesn't matter.
+
+table_response_aware<-data.frame(round(response_aware$coefficients,5))
+table_response_liking<-data.frame(round(response_liking$coefficients,5))
+table_response_consideration<-data.frame(round(response_consideration$coefficients,5))
+table_response_sales<-data.frame(round(response_sales$coefficients,5))
+
+table_response_aware
+table_response_consideration
+table_response_liking
+table_response_sales
+
+
+# CONVERSION
+
+# how are sales driven by mindset ?
+# @TODO: add interaction between metrics => ok but actually how do I interpret an interaction between metrics. done
+# @TODO: add direct/indirect effect between metrics (e.g. awareness -> consideration -> sales). done via interactions
+
+reducedconversion <- lm(log(df$Sales+1)~log(lag_sales+1)+log(df$Awareness+1)+log(df$consideration_transformed+1)+log(df$liking_transformed+1), data = df)
+fullconversion <- lm(log(df$Sales+1)~(log(lag_sales+1)+log(df$Awareness+1)+log(df$consideration_transformed+1)+log(df$liking_transformed+1))^4, data = df)
+conversion <- step(fullconversion, scope = list(lower = formula(reducedconversion),upper = formula(fullconversion)))
+summary(conversion)
+
+table_conversion <-data.frame(round(conversion$coefficients,5))
+table_conversion
+
+
+# RESULTS. This table may be broken due to the changes in the models
+
+table_final<-data.frame(
+  Item = c("beginning level", "potential", "stickiness", "responsiveness to insta", "responsiveness to tiktok", "responsiveness to SEA", "responsiveness to PoSPromotion", "responsiveness to influencer colabs", "conversion"), 
+  awareness=c(round(mean(df$Awareness)/100,3),round(potential_awareness,3),round(stick_awareness,3),round(response_aware$coefficients[3],5),	round(response_aware$coefficients[4],5),round(response_aware$coefficients[5],5),round(response_aware$coefficients[6],5),round(response_aware$coefficients[7],5),round(conversion$coefficients[3],3)), 
+  consideration=c(round(mean(df$consideration_transformed)/100,3), round(potential_consideration,3), round(stick_consideration,3),round(response_consideration$coefficients[3],5),round(response_consideration$coefficients[4],5),round(response_consideration$coefficients[5],5),round(response_consideration$coefficients[6],5),round(response_consideration$coefficients[7],5),round(conversion$coefficients[4],3)), 
+  liking = c(round(mean(df$liking_transformed)/100,3), round(potential_liking,3), round(stick_liking,3),round(response_liking$coefficients[3],5), round(response_liking$coefficients[4],5), round(response_liking$coefficients[5],5), round(response_liking$coefficients[6],5), round(response_liking$coefficients[7],5),round(conversion$coefficients[5],3))
+)
+
+
+table_final
+
+# negative responsiveness : either the response is lagged (it only shows the day after, so we should lag it)
+# either people consider/like the brand less after the thing (but I don't know about awareness though)
+
+# negative conversion of awareness => WTF ?
+
+
+# APPEAL
+
+# I'm using functions to make it easier
+
+appeal_mindset_marketVar <- function(mindset, marketing_var_index){
+  appeal <- round(table_final[2,mindset]*table_final[marketing_var_index,mindset]*(1/(1-table_final[3,mindset]))*table_final[9,mindset],5)
+  return(appeal)
+}
+
+appeal_marketVar <- function(marketing_var_index) {
+  mindsets <- c("awareness", "consideration", "liking")
+  result <- sum(sapply(mindsets, appeal_mindset_marketVar, marketing_var_index=marketing_var_index))
+  return(result)
+}
+
+
+appeal_marketVar(4) # insta
+appeal_marketVar(5) # tiktok
+appeal_marketVar(6) # sea
+appeal_marketVar(7) # pospromotion
+appeal_marketVar(8) # colabs
+
+
